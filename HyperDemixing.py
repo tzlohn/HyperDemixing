@@ -400,7 +400,7 @@ class Plot2D(QWidget):
         self.LabelButton.clicked.connect(self.LabelorSave)
         self.LabelButton.setProperty("LabelorSave",True)
         self.ThresholdValue = QSpinBox(self)
-        self.ThresholdValue.setMaximum(255)
+        self.ThresholdValue.setMaximum(65535)
         self.ThresholdValue.valueChanged.connect(self.sendValueToSlider)
         self.ChannelSpinBox = QComboBox(self)
         ChannelList = [str(n) for n in range(self.OriImage.shape[0])]    
