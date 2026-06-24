@@ -155,8 +155,8 @@ class PCAImageWin(MainWin):
         self.Pixels = list()
         for idx in index:
 
-            x = idx//self.OriShape[1]
-            y = idx%self.OriShape[1]
+            x = idx//self.OriShape[2]
+            y = idx%self.OriShape[2]
 
             GraphicItems = QGraphicsEllipseItem(x,y,2,2)
             GraphicItems.setPen(QPen(Qt.yellow,0.3,Qt.SolidLine))
@@ -343,6 +343,8 @@ class DemixingWizard(QWidget):
         for idx,aPixel in enumerate(Result):
             x = idx//Image.shape[1]
             y = idx%Image.shape[1]
+            if aPixel < 0:
+                aPixel = 0
 
             Output[:,x,y] = aPixel
         
