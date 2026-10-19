@@ -124,6 +124,7 @@ class PCAImageWin(MainWin):
         self.OriShape = Img.shape
         ImgData = Img.reshape(self.OriShape[0],self.OriShape[1]*self.OriShape[2])
         NormImgData = ImgData/np.sum(ImgData,axis = 0)
+        NormImgData = np.nan_to_num(NormImgData,copy = False, nan=0)
         CovMx = np.dot(NormImgData,np.transpose(NormImgData))
         [Eig , EigV] = np.linalg.eig(CovMx)
         #print(Eig[0],EigV[0])
@@ -343,8 +344,9 @@ class DemixingWizard(QWidget):
         for idx,aPixel in enumerate(Result):
             x = idx//Image.shape[1]
             y = idx%Image.shape[1]
-            if aPixel < 0:
-                aPixel = 0
+            for idx,aCh in enumerate(aPixel):
+                if aCh < 0:
+                    aPixel[idx] = 0
 
             Output[:,x,y] = aPixel
         
