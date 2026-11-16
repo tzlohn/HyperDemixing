@@ -123,14 +123,15 @@ class PCAImageWin(MainWin):
     def ImgPCA(self,Img:np.ndarray):
         self.OriShape = Img.shape
         ImgData = Img.reshape(self.OriShape[0],self.OriShape[1]*self.OriShape[2])
-        NormImgData = ImgData/np.sum(ImgData,axis = 0)
-        NormImgData = np.nan_to_num(NormImgData,copy = False, nan=0)
+        NormImgData = ImgData/(1e-8 + np.sum(ImgData,axis = 0)) # Avoid division by zero
         CovMx = np.dot(NormImgData,np.transpose(NormImgData))
         [Eig , EigV] = np.linalg.eig(CovMx)
-        #print(Eig[0],EigV[0])
-        #print(Eig[1],EigV[1])
-        V1 = np.dot(np.transpose(NormImgData),EigV[0])
-        V2 = np.dot(np.transpose(NormImgData),EigV[1])
+        EigV0 = np.abs(EigV[0])
+        EigV1 = np.abs(EigV[1]) 
+        #print(Eig[0],EigV0)
+        #print(Eig[1],EigV1)
+        V1 = np.dot(np.transpose(NormImgData),EigV0)
+        V2 = np.dot(np.transpose(NormImgData),EigV1)
         EigImg = np.dot(np.transpose(NormImgData),EigV)
         EigImg = np.transpose(EigImg)
         EigImg = EigImg.reshape(self.OriShape[0],self.OriShape[1],self.OriShape[2])
