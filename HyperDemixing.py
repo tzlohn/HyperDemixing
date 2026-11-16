@@ -617,8 +617,11 @@ class Plot2D(QWidget):
         idx = 0
         Data = [[x,y] for x,y,_,_ in self.Data]
         for roiVec,onePoint in zip(ROIvec,self.CurvePoints):
-            ThisData = np.cross((np.asarray(Data)-np.asarray(onePoint)),roiVec)
-            ThisData = ThisData//np.abs(ThisData)
+            VecData = np.asarray(Data) - np.asarray(onePoint)
+            # For 2D points, the signed cross product is the scalar z-component:
+            # (x1, y1) x (x2, y2) = x1*y2 - y1*x2
+            ThisData = VecData[:, 0] * roiVec[1] - VecData[:, 1] * roiVec[0]
+            ThisData = np.sign(ThisData)
             if idx == 0:
                 d_Data = ThisData
                 idx = 1
