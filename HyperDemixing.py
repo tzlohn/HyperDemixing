@@ -126,8 +126,10 @@ class PCAImageWin(MainWin):
         NormImgData = ImgData/(1e-8 + np.sum(ImgData,axis = 0)) # Avoid division by zero
         CovMx = np.dot(NormImgData,np.transpose(NormImgData))
         [Eig , EigV] = np.linalg.eig(CovMx)
-        EigV0 = np.abs(EigV[0])
-        EigV1 = np.abs(EigV[1]) 
+        self.EigV = np.real(EigV)
+        EigV0 = np.abs(EigV[0])/np.sum(np.abs(EigV[0]))
+        EigV1 = np.abs(EigV[1])/np.sum(np.abs(EigV[1]))
+        #print(np.sum(np.abs(EigV[0])),np.sum(np.abs(EigV[1])))
         #print(Eig[0],EigV0)
         #print(Eig[1],EigV1)
         V1 = np.dot(np.transpose(NormImgData),EigV0)
@@ -318,15 +320,25 @@ class DemixingWizard(QWidget):
         return RefSpectaDict
 
     def unmix(self):
+        answer = QMessageBox.question(
+            self,
+            "Negative values",
+            "Set negative demixing values to zero?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        set_negative_to_zero = answer == QMessageBox.Yes
+
         ChanNameList = dict()
         for idx,aWidget in enumerate(self.WidgetList):
             ChanNameList["Channel "+str(idx+1)] = aWidget[0].text()
         self.RefSpectaDict = self.loadSpectra()
-        Output = self.solveLSQ(np.transpose(self.RefSpectaDict))
+        Output = self.solveLSQ(np.transpose(self.RefSpectaDict), set_negative_to_zero)
         TFF.imwrite("Demixing.tif",Output,metadata={"Info":"\n".join(ChanNameList)+"\n"})
         MsgBox = QMessageBox.information(self,"Info","The image is unmixed and saved")
+        return set_negative_to_zero
 
-    def solveLSQ(self,FeatureMx):
+    def solveLSQ(self,FeatureMx,set_negative_to_zero=True):
         CovMx = np.dot(np.transpose(FeatureMx),FeatureMx)
         Kernel = np.dot(np.linalg.inv(CovMx),np.transpose(FeatureMx))
         Image = self.MainWin.img
@@ -345,9 +357,10 @@ class DemixingWizard(QWidget):
         for idx,aPixel in enumerate(Result):
             x = idx//Image.shape[1]
             y = idx%Image.shape[1]
-            for idx,aCh in enumerate(aPixel):
-                if aCh < 0:
-                    aPixel[idx] = 0
+            if set_negative_to_zero:
+                for idx,aCh in enumerate(aPixel):
+                    if aCh < 0:
+                        aPixel[idx] = 0
 
             Output[:,x,y] = aPixel
         
@@ -404,6 +417,13 @@ class Plot2D(QWidget):
         self.LabelButton.setDisabled(True)
         self.LabelButton.clicked.connect(self.LabelorSave)
         self.LabelButton.setProperty("LabelorSave",True)
+        self.SavePCAButton = QPushButton(self)
+        self.SavePCAButton.setText("Save PCA coordinate")
+        self.SavePCAButton.setDisabled(True)
+        self.SavePCAButton.clicked.connect(self.savePCAcoordinate)
+        self.ShowEigenvectorsButton = QPushButton(self)
+        self.ShowEigenvectorsButton.setText("Show eigenvectors")
+        self.ShowEigenvectorsButton.clicked.connect(self.showEigenvectors)
         self.ThresholdValue = QSpinBox(self)
         self.ThresholdValue.setMaximum(65535)
         self.ThresholdValue.valueChanged.connect(self.sendValueToSlider)
@@ -418,13 +438,15 @@ class Plot2D(QWidget):
 
         self.Layout = QGridLayout(self)
         self.Layout.addWidget(self.plot,0,0,4,4)
-        self.Layout.addWidget(self.ThresholdSlider,5,1,1,2)
         self.Layout.addWidget(self.CursorButton,4,0,1,1)
         self.Layout.addWidget(self.CursorInfo,4,1,1,1)
         self.Layout.addWidget(self.DrawROI,4,2,1,1)
         self.Layout.addWidget(self.LabelButton,4,3,1,1)
-        self.Layout.addWidget(self.ThresholdValue,5,3,1,1)
-        self.Layout.addWidget(self.ChannelSpinBox,5,0,1,1)
+        self.Layout.addWidget(self.SavePCAButton,5,3,1,1)
+        self.Layout.addWidget(self.ShowEigenvectorsButton,5,2,1,1)
+        self.Layout.addWidget(self.ThresholdSlider,6,1,1,2)
+        self.Layout.addWidget(self.ThresholdValue,6,3,1,1)
+        self.Layout.addWidget(self.ChannelSpinBox,6,0,1,1)
         self.setLayout(self.Layout)
     
     def updateOriData(self):
@@ -583,11 +605,99 @@ class Plot2D(QWidget):
             self.findROIindex()
             self.LabelButton.setProperty("LabelorSave",False)
             self.LabelButton.setText("Save Result")
+            self.SavePCAButton.setEnabled(True)
         else:
             self.saveROI()
             self.LabelButton.setProperty("LabelorSave",True)
             self.LabelButton.setText("Label ROI")
-    
+            self.SavePCAButton.setDisabled(True)
+
+    def savePCAcoordinate(self):
+        if hasattr(self, "PCACoordinates"):
+            ChoiceBox = QMessageBox(self)
+            ChoiceBox.setWindowTitle("Save PCA coordinates")
+            ChoiceBox.setText("Which pixels do you want to save?")
+            AllButton = ChoiceBox.addButton("All pixels", QMessageBox.AcceptRole)
+            SelectedButton = ChoiceBox.addButton("Selected pixels", QMessageBox.AcceptRole)
+            ChoiceBox.addButton("Cancel", QMessageBox.RejectRole)
+            ChoiceBox.exec()
+
+            clicked_button = ChoiceBox.clickedButton()
+            if clicked_button == AllButton:
+                coordinates = [[x, y] for x, y, _, _ in self.Data]
+            elif clicked_button == SelectedButton:
+                coordinates = self.PCACoordinates
+            else:
+                return
+
+            Name = QFileDialog.getSaveFileName(self, "Save PCA coordinates", "", "CSV files (*.csv)")
+            if Name[0]:
+                filename = Name[0]
+                if not filename.lower().endswith(".csv"):
+                    filename += ".csv"
+                with open(filename, "w", newline="") as csvfile:
+                    wr = csv.writer(csvfile)
+                    wr.writerow(["PCA1", "PCA2"])
+                    wr.writerows(coordinates)
+        else:
+            QMessageBox.warning(self, "Warning", "Draw ROI and click 'Label ROI' or 'Save Result' button first")
+
+    def showEigenvectors(self):
+        Eigenvectors = self.MainWin.EigV
+        VectorOne = np.ones(shape=(Eigenvectors.shape[0],1))
+        EigenSum = np.dot(np.abs(Eigenvectors),VectorOne)
+        EigenNorm = Eigenvectors.T/EigenSum
+
+        if not hasattr(self, "EigenvectorWindow"):
+            self.EigenvectorWindow = QWidget()
+            self.EigenvectorWindow.setWindowTitle("Eigenvectors")
+            self.EigenvectorImage = pg.ImageView()
+
+            # Approximate MATLAB's Parula lookup-table colors.
+            parula_colors = np.array([
+                [53, 42, 135], [44, 49, 146], [33, 62, 156],
+                [21, 78, 166], [15, 92, 177], [18, 108, 192],
+                [19, 125, 205], [7, 141, 203], [14, 156, 198],
+                [32, 169, 185], [60, 181, 168], [91, 190, 150],
+                [119, 193, 125], [148, 194, 99], [174, 191, 75],
+                [199, 185, 57], [223, 178, 43], [243, 168, 43],
+                [249, 149, 54], [243, 126, 70], [229, 102, 85],
+                [208, 79, 93], [184, 57, 96], [156, 38, 99]
+            ], dtype=np.ubyte)
+            parula_positions = np.linspace(0.0, 1.0, len(parula_colors))
+            parula_map = pg.ColorMap(pos=parula_positions, color=parula_colors)
+            self.EigenvectorImage.setColorMap(parula_map)
+
+            self.EigenvectorCursorInfo = QLineEdit()
+            self.EigenvectorCursorInfo.setReadOnly(True)
+            EigenvectorLayout = QGridLayout(self.EigenvectorWindow)
+            EigenvectorLayout.addWidget(self.EigenvectorImage, 0, 0)
+            EigenvectorLayout.addWidget(self.EigenvectorCursorInfo, 1, 0)
+
+            self.EigenvectorCursorEvent = pg.SignalProxy(
+                self.EigenvectorImage.scene.sigMouseMoved,
+                delay=0,
+                slot=self.showEigenvectorCursorValue
+            )
+
+        self.EigenvectorWindowData = EigenNorm.T
+        self.EigenvectorImage.setImage(EigenNorm.T, autoLevels=False)
+        self.EigenvectorCursorInfo.clear()
+        self.EigenvectorWindow.resize(700, 700)
+        self.EigenvectorWindow.show()
+
+    def showEigenvectorCursorValue(self, cursor_event):
+        cursor = self.EigenvectorImage.view.mapSceneToView(cursor_event[0])
+        x = int(cursor.y())
+        y = int(cursor.x())
+
+        if (0 <= y < self.EigenvectorWindowData.shape[0]
+                and 0 <= x < self.EigenvectorWindowData.shape[1]):
+            value = self.EigenvectorWindowData[y, x]
+            self.EigenvectorCursorInfo.setText(
+                "(x,y) = (%d,%d), value = %.6f" % (x, y, value)
+            )
+
     def saveROI(self):
         OutputData = list()
         for idx in self.index:
@@ -632,6 +742,7 @@ class Plot2D(QWidget):
         idx = np.where(abs(d_Data) == len(self.CurvePoints))[0]
         XData = [self.Data[n][0] for n in idx]
         YData = [self.Data[n][1] for n in idx]
+        self.PCACoordinates = [[x, y] for x, y in zip(XData, YData)]
         self.index = [self.Data[n][3] for n in idx]
         self.CursorPlot = pg.ScatterPlotItem(size=6, brush=pg.mkBrush(255, 0, 0, 255))
         self.CursorPlot.addPoints(XData,YData)
